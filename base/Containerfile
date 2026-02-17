@@ -1,0 +1,7 @@
+FROM registry.fedoraproject.org/fedora:43
+ENV TERM=xterm-256color
+
+COPY install.sh /opt/install.sh
+RUN bash /opt/install.sh && rm -f /opt/install.sh
+
+CMD ["/bin/bash"]
