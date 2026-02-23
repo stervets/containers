@@ -24,6 +24,7 @@ alias z='flatpak-spawn --host flatpak run dev.zed.Zed'
 
 containerName="$(sed -n 's/^name="\([^"]*\)".*/\1/p' /run/.containerenv)"
 if [ -n "$containerName" ]; then
-    PS1="\[\e[0;37m\]\]📦[\[\e[38;5;41m\]$containerName\[\e[0m\]:\[\e[1;34m\]\w\[\e[0;37m\]\]]$ \[\e[0m\]"
+    #PS1="\[\e[0;37m\]\]📦[\[\e[38;5;41m\]$containerName\[\e[0m\]:\[\e[1;34m\]\w\[\e[0;37m\]\]]$ \[\e[0m\]"
+    PS1="\[\e[0;37m\]📦[\[\e[38;5;41m\]$containerName\[\e[0m\]:\[\e[1;34m\]\w\[\e[0;37m\]]\$ \[\e[0m\]"
     printf "\n📦 Container\033[1;34m %s\033[0m \n\n" "$containerName"
 fi

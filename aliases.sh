@@ -83,6 +83,7 @@ dc() {
   # 3) .ssh всегда ссылка на хост
   rm -rf "$envDirectory/.ssh"
   ln -s "$HOME/.ssh" "$envDirectory/.ssh"
+  ln -s "$HOME/projects" "$envDirectory/projects"
 
   # 4) выбрать образ: localhost/<name>:latest если есть, иначе base
   local imageName="localhost/$containerName:latest"
@@ -114,6 +115,7 @@ dc() {
 
   # 8) заходить только если не попросили --no-enter
   if [ "$noEnter" != "--no-enter" ]; then
+    cd "$envDirectory"	  
     d "$containerName"
   fi
 }

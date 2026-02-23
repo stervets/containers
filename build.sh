@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+#set -euo pipefail
+set -euxo pipefail
+
 
 source "$HOME/containers/aliases.sh"
 
@@ -19,6 +21,7 @@ echo ">>> Building localhost/$IMAGE_NAME:latest"
 podman build \
   -f "$CONTAINERFILE_PATH" \
   -t "localhost/$IMAGE_NAME:latest" \
+  --no-cache \
   "$CONTAINER_DIR"
 
 echo ">>> Build done"
