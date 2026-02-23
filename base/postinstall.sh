@@ -8,6 +8,12 @@ if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     | NVM_DIR="$NVM_DIR" bash
 fi
 
+target="$DISTROBOX_HOST_HOME/projects"
+link="$HOME/projects"
+if [ -d "${DISTROBOX_HOST_HOME:-}/projects" ] && [ ! -e "$link" ]; then
+  ln -s "$target" "$link"
+fi
+
 source "$NVM_DIR/nvm.sh"
 
 nvm install 24

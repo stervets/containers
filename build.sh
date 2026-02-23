@@ -1,47 +1,61 @@
 #!/usr/bin/env bash
-#set -euo pipefail
-set -euxo pipefail
-
+set -euo pipefail
 
 source "$HOME/containers/aliases.sh"
 
 CONTAINERS_ROOT="$HOME/containers"
-IMAGE_NAME="${1:-base}"
 
-CONTAINER_DIR="$CONTAINERS_ROOT/$IMAGE_NAME"
-CONTAINERFILE_PATH="$CONTAINER_DIR/Containerfile"
+IMAGE_NAME="base"
+BUILD_ALL=1
 
-if [ ! -f "$CONTAINERFILE_PATH" ]; then
-  echo "Containerfile not found: $CONTAINERFILE_PATH" >&2
-  exit 1
+# --- parse args ---
+if [ $# -ge 1 ]; then
+  if [[ "$1" != --* ]]; then
+    IMAGE_NAME="$1"
+    shift
+  fi
 fi
 
-echo ">>> Building localhost/$IMAGE_NAME:latest"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-build-all)
+      BUILD_ALL=0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
 
-podman build \
-  -f "$CONTAINERFILE_PATH" \
-  -t "localhost/$IMAGE_NAME:latest" \
-  --no-cache \
-  "$CONTAINER_DIR"
+build_image() {
+  local name="$1"
+  local dir="$CONTAINERS_ROOT/$name"
+  local cf="$dir/Containerfile"
 
-echo ">>> Build done"
-echo ">>> Rebuilding containers..."
+  if [ ! -f "$cf" ]; then
+    echo ">>> Skip build: $name (no Containerfile)"
+    return 0
+  fi
+
+  echo ">>> Building localhost/$name:latest"
+  podman build \
+    -f "$cf" \
+    -t "localhost/$name:latest" \
+    "$dir"
+}
 
 image_name() {
   podman inspect "$1" --format '{{.ImageName}}' 2>/dev/null
 }
 
-# Возвращает имя managed-образа (например "base", "test"), если:
-# - image == localhost/<name>:latest
-# - существует $HOME/containers/<name>/Containerfile
-# Иначе возвращает пусто.
 managed_image_name() {
-  local img
+  local img name
   img="$(image_name "$1")"
 
-  # Только localhost/<name>:latest
   if [[ "$img" =~ ^localhost/([^:]+):latest$ ]]; then
-    local name="${BASH_REMATCH[1]}"
+    name="${BASH_REMATCH[1]}"
     if [ -f "$CONTAINERS_ROOT/$name/Containerfile" ]; then
       echo "$name"
       return 0
@@ -55,19 +69,35 @@ is_toolbox() {
   [ "$(podman inspect "$1" --format '{{index .Config.Labels "com.github.containers.toolbox"}}' 2>/dev/null)" = "true" ]
 }
 
+# --- 1. Build target image ---
+build_image "$IMAGE_NAME"
+
+# --- 2. base -> optionally build all ---
+if [ "$IMAGE_NAME" = "base" ] && [ "$BUILD_ALL" -eq 1 ]; then
+  echo ">>> base built -> building all images..."
+
+  for dir in "$CONTAINERS_ROOT"/*; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+
+    [ "$name" = "base" ] && continue
+    [ -f "$dir/Containerfile" ] || continue
+
+    build_image "$name"
+  done
+fi
+
+echo ">>> Build done"
+echo ">>> Rebuilding containers..."
+
 for container in $(podman ps -a --format '{{.Names}}'); do
-  # 1) фильтр: трогаем только "managed" контейнеры
   managedName=""
-  if managedName="$(managed_image_name "$container")"; then
-    : # ok
-  else
+  if ! managedName="$(managed_image_name "$container")"; then
     echo "Skipping $container (not managed)"
     continue
   fi
 
-  # 2) логика пересоздания
   if [ "$IMAGE_NAME" = "base" ]; then
-    # base rebuild -> пересоздаём ВСЕ managed контейнеры
     if is_toolbox "$container"; then
       echo "Recreating $container (toolbox, base rebuild)"
       tc "$container" --no-enter
@@ -75,19 +105,19 @@ for container in $(podman ps -a --format '{{.Names}}'); do
       echo "Recreating $container (distrobox, base rebuild)"
       dc "$container" --no-enter
     fi
-  else
-    # rebuild конкретного образа -> только контейнеры, которые реально на нём
-    if [ "$managedName" = "$IMAGE_NAME" ]; then
-      if is_toolbox "$container"; then
-        echo "Recreating $container (toolbox, image match)"
-        tc "$container" --no-enter
-      else
-        echo "Recreating $container (distrobox, image match)"
-        dc "$container" --no-enter
-      fi
+    continue
+  fi
+
+  if [ "$managedName" = "$IMAGE_NAME" ]; then
+    if is_toolbox "$container"; then
+      echo "Recreating $container (toolbox, image match)"
+      tc "$container" --no-enter
     else
-      echo "Skipping $container (managed=$managedName, target=$IMAGE_NAME)"
+      echo "Recreating $container (distrobox, image match)"
+      dc "$container" --no-enter
     fi
+  else
+    echo "Skipping $container (managed=$managedName, target=$IMAGE_NAME)"
   fi
 done
 
