@@ -131,3 +131,42 @@ dr() {
   distrobox rm "$containerName" --force >/dev/null 2>&1 || true
   rm -rf "$HOME/env/$containerName"
 }
+
+# --- smart enter: toolbox OR distrobox (через podman labels)
+e() {
+  if [ -z "${1:-}" ]; then
+    echo "usage: e <container_name>" >&2
+    return 2
+  fi
+
+  local containerName="$1"
+
+  # существует ли вообще контейнер в podman?
+  if ! podman container exists "$containerName" 2>/dev/null; then
+    echo "no such container '$containerName' in podman" >&2
+    return 1
+  fi
+
+  # toolbox? (обычно label com.github.containers.toolbox=true)
+  local toolboxLabel
+  toolboxLabel="$(podman inspect -f '{{ index .Config.Labels "com.github.containers.toolbox" }}' "$containerName" 2>/dev/null || true)"
+  if [ "$toolboxLabel" = "true" ]; then
+    toolbox enter "$containerName"
+    return $?
+  fi
+
+  # distrobox? (обычно manager=distrobox, иногда ещё com.distrobox=*)
+  local distroboxManagerLabel distroboxCompatLabel
+  distroboxManagerLabel="$(podman inspect -f '{{ index .Config.Labels "manager" }}' "$containerName" 2>/dev/null || true)"
+  distroboxCompatLabel="$(podman inspect -f '{{ index .Config.Labels "com.distrobox" }}' "$containerName" 2>/dev/null || true)"
+
+  if [ "$distroboxManagerLabel" = "distrobox" ] || [ -n "$distroboxCompatLabel" ]; then
+    distrobox enter "$containerName"
+    return $?
+  fi
+
+  echo "container '$containerName' exists in podman, but not tagged as toolbox/distrobox" >&2
+  echo "labels:" >&2
+  podman inspect -f '{{ json .Config.Labels }}' "$containerName" 2>/dev/null >&2 || true
+  return 1
+}
