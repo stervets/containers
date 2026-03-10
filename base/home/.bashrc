@@ -8,6 +8,8 @@ if ! [[ "$PATH" =~ "$HOME/.local/bin:$HOME/bin:" ]]; then
   PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 fi
 
+PATH="$PATH:/var/home/lisov/.local/share/JetBrains/Toolbox/scripts"
+
 export PATH
 export EDITOR=vim
 
@@ -21,6 +23,19 @@ alias ll="ls -lah"
 alias vib="vim $HOME/.bashrc"
 alias vis="source $HOME/.bashrc"
 alias z='flatpak-spawn --host flatpak run dev.zed.Zed'
+
+
+vif() {
+  local file
+  file="$(rg -il "$1" | fzf)" || return
+  vim "$file"
+}
+
+cdf() {
+  local dir
+  dir="$(find . -type d 2>/dev/null | fzf -i +m)" || return
+  cd "$dir" || return
+}
 
 containerName="$(sed -n 's/^name="\([^"]*\)".*/\1/p' /run/.containerenv)"
 if [ -n "$containerName" ]; then

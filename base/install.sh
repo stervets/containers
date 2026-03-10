@@ -24,4 +24,5 @@ dnf -y install \
     pkgconf-pkg-config \
     ripgrep \
     fd-find \
+    fzf \
     && dnf -y clean all

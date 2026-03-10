@@ -8,6 +8,8 @@ t() {
 }
 
 # --- toolbox create from my base image
+# --- toolbox create from my base image + postinstall
+# --- toolbox create from my base image + container postinstall
 tc() {
   if [ -z "${1:-}" ]; then
     echo "usage: tc <container_name> [--no-enter]" >&2
@@ -17,6 +19,9 @@ tc() {
   local containerName="$1"
   local noEnter="${2:-}"
 
+  local containersRoot="$HOME/containers"
+  local containerPostinstall="$containersRoot/$containerName/postinstall.sh"
+
   local imageName="localhost/$containerName:latest"
   if ! podman image exists "$imageName" 2>/dev/null; then
     imageName="localhost/base:latest"
@@ -25,19 +30,20 @@ tc() {
   toolbox rm "$containerName" --force >/dev/null 2>&1 || true
   toolbox create "$containerName" --image "$imageName"
 
+  # container postinstall (если есть)
+  echo "postinstall path: $containerPostinstall"
+  if [ -f "$containerPostinstall" ]; then
+    echo "[tc] running postinstall for '$containerName'..."
+    toolbox run -c "$containerName" bash -lc \
+      "set -euo pipefail; echo '[tc] START postinstall'; bash -x '$containerPostinstall'; echo '[tc] END postinstall'"
+    echo "[tc] postinstall exit code: $?"
+  else
+    echo "[tc] no postinstall for '$containerName'"
+  fi
+
   if [ "$noEnter" != "--no-enter" ]; then
-    t "$containerName"
+    toolbox enter "$containerName"
   fi
-}
-
-
-# --- toolbox remove
-tr() {
-  if [ -z "$1" ]; then
-    echo "usage: tr <container_name>" >&2
-    return 2
-  fi
-  toolbox rm "$1" --force
 }
 
 # --- distrobox enter
@@ -95,7 +101,9 @@ dc() {
   distrobox create \
     --name "$containerName" \
     --home "$envDirectory" \
-    --image "$imageName"
+    --image "$imageName" \
+    --nvidia \
+    --additional-flags "--userns=keep-id"
 
   # 6) postinstall base (если есть)
   if [ -f "$postinstall" ]; then
@@ -135,30 +143,43 @@ dr() {
 # --- smart enter: toolbox OR distrobox (через podman labels)
 e() {
   if [ -z "${1:-}" ]; then
-    echo "usage: e <container_name>" >&2
+    echo "usage: e <container_name> [command...]" >&2
     return 2
   fi
 
   local containerName="$1"
+  shift
 
-  # существует ли вообще контейнер в podman?
   if ! podman container exists "$containerName" 2>/dev/null; then
     echo "no such container '$containerName' in podman" >&2
     return 1
   fi
 
-  # toolbox? (обычно label com.github.containers.toolbox=true)
   local toolboxLabel
   toolboxLabel="$(podman inspect -f '{{ index .Config.Labels "com.github.containers.toolbox" }}' "$containerName" 2>/dev/null || true)"
+
+  local distroboxManagerLabel distroboxCompatLabel
+  distroboxManagerLabel="$(podman inspect -f '{{ index .Config.Labels "manager" }}' "$containerName" 2>/dev/null || true)"
+  distroboxCompatLabel="$(podman inspect -f '{{ index .Config.Labels "com.distrobox" }}' "$containerName" 2>/dev/null || true)"
+
+  # есть команда → выполнить и остаться внутри
+  if [ $# -gt 0 ]; then
+    local cmd="$*; exec bash -l"
+    if [ "$toolboxLabel" = "true" ]; then
+      toolbox enter "$containerName" -- bash -lc "$cmd"
+      return $?
+    fi
+    if [ "$distroboxManagerLabel" = "distrobox" ] || [ -n "$distroboxCompatLabel" ]; then
+      distrobox enter "$containerName" -- bash -lc "$cmd"
+      return $?
+    fi
+  fi
+
+  # нет команды → просто зайти
   if [ "$toolboxLabel" = "true" ]; then
     toolbox enter "$containerName"
     return $?
   fi
-
-  # distrobox? (обычно manager=distrobox, иногда ещё com.distrobox=*)
-  local distroboxManagerLabel distroboxCompatLabel
-  distroboxManagerLabel="$(podman inspect -f '{{ index .Config.Labels "manager" }}' "$containerName" 2>/dev/null || true)"
-  distroboxCompatLabel="$(podman inspect -f '{{ index .Config.Labels "com.distrobox" }}' "$containerName" 2>/dev/null || true)"
 
   if [ "$distroboxManagerLabel" = "distrobox" ] || [ -n "$distroboxCompatLabel" ]; then
     distrobox enter "$containerName"
@@ -166,7 +187,5 @@ e() {
   fi
 
   echo "container '$containerName' exists in podman, but not tagged as toolbox/distrobox" >&2
-  echo "labels:" >&2
-  podman inspect -f '{{ json .Config.Labels }}' "$containerName" 2>/dev/null >&2 || true
   return 1
 }
